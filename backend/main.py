@@ -48,10 +48,11 @@ DEMO_USER_ID = "local-dev-user"
 # 生产环境建议用 Alembic 做 migration。
 Base.metadata.create_all(bind=engine)
 
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[FRONTEND_URL],
     allow_methods=["*"],
     allow_headers=["*"],
 )
