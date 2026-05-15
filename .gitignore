@@ -1,6 +1,7 @@
 # environment variables
 .env
 .env.local
+.env.example
 backend/.env
 frontend/.env.local
 
