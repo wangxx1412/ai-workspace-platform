@@ -31,6 +31,15 @@ DEMO_USER_ID = "local-dev-user"
 # Create tables automatically
 # Production note:
 # In production, use Alembic migrations instead.
+
+# Enable vector extension for pgvector support. 
+# In production,should set up the extension manually.
+from sqlalchemy import text
+
+with engine.connect() as connection:
+    connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    connection.commit()
+
 Base.metadata.create_all(bind=engine)
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")

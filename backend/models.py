@@ -1,13 +1,7 @@
 """
 Database models
-数据库模型
-
-Day 3 models:
 1. Conversation
 2. Message
-
-Day 3 暂时不做真正 User 表。
-我们使用 demo_user_id 来模拟用户。
 """
 
 import uuid
@@ -15,6 +9,7 @@ from datetime import datetime
 
 from sqlalchemy import Column, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import relationship
+from pgvector.sqlalchemy import Vector
 
 from database import Base
 
@@ -89,4 +84,70 @@ class Message(Base):
     conversation = relationship(
         "Conversation",
         back_populates="messages",
+    )
+
+class Document(Base):
+    """
+    Document table.
+
+    One uploaded PDF creates one document record.
+    """
+
+    __tablename__ = "documents"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+
+    user_id = Column(String, nullable=False, index=True)
+
+    filename = Column(String, nullable=False)
+
+    status = Column(String, nullable=False, default="ready")
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    chunks = relationship(
+        "DocumentChunk",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        order_by="DocumentChunk.chunk_index",
+    )
+
+
+class DocumentChunk(Base):
+    """
+    Document chunk table.
+
+    Each chunk stores:
+    - text content
+    - embedding vector
+    - metadata such as page number and chunk index
+    """
+
+    __tablename__ = "document_chunks"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+
+    document_id = Column(
+        String,
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    content = Column(Text, nullable=False)
+
+    chunk_index = Column(String, nullable=False)
+
+    page_number = Column(String, nullable=True)
+
+    # text-embedding-3-small returns 1536 dimensions.
+    # text-embedding-3-small 返回 1536 维向量。
+    embedding = Column(Vector(1536), nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    document = relationship(
+        "Document",
+        back_populates="chunks",
     )
