@@ -8,3 +8,4 @@ pydantic
 pymupdf
 pgvector
 python-multipart
+
