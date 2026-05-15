@@ -1,7 +1,24 @@
+# environment variables
 .env
-.env.example
 .env.local
-.venv/
+backend/.env
+frontend/.env.local
+
+# dependencies
 node_modules/
+frontend/node_modules/
+
+# builds
 .next/
+frontend/.next/
+dist/
+build/
+
+# python
+.venv/
+backend/.venv/
 __pycache__/
+*.pyc
+
+# misc
+.DS_Store
