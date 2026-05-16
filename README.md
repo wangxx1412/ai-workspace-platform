@@ -386,6 +386,12 @@ In a production version, this would be replaced with a real authenticated user I
 
 ---
 
+## Cloud Deployment
+
+The backend is deployed as a containerized FastAPI service on AWS ECS Fargate, with the Docker image hosted in Amazon ECR. PostgreSQL persistence is provided by Amazon RDS, backend logs are collected through CloudWatch, and sensitive configuration such as the OpenAI API key is injected through AWS SSM Parameter Store.
+
+The frontend is deployed on Vercel and uses a rewrite proxy to securely route browser requests to the AWS backend.
+
 ## Current Status
 
 ### Completed

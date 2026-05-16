@@ -22,3 +22,6 @@ __pycache__/
 
 # misc
 .DS_Store
+
+ecs-task-definition.json
+ssm-read-policy.json
