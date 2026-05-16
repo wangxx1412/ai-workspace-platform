@@ -8,7 +8,6 @@ const API_BASE_URL =
 
 /**
  * Document item shown in the document sidebar/list.
- * 文档列表里显示的文档结构。
  */
 type DocumentItem = {
   id: string;
@@ -21,9 +20,6 @@ type DocumentItem = {
 
 /**
  * Detailed document status returned by:
- * GET /documents/{document_id}
- *
- * 某个文档的详情，由这个接口返回：
  * GET /documents/{document_id}
  */
 type DocumentDetail = {
@@ -39,8 +35,6 @@ type DocumentDetail = {
 /**
  * Response from:
  * POST /documents/{document_id}/ask
- *
- * 文档问答接口返回结构。
  */
 type AskResponse = {
   answer: string;
@@ -55,7 +49,6 @@ type AskResponse = {
 
 /**
  * Helper function to format date.
- * 格式化日期的小工具。
  */
 function formatDate(value: string) {
   return new Date(value).toLocaleString();
@@ -63,10 +56,8 @@ function formatDate(value: string) {
 
 /**
  * Helper function to render status badge.
- * 渲染文档状态 badge。
  *
  * We intentionally keep this simple.
- * 这里故意保持简单，不引入额外 UI library。
  */
 function getStatusLabel(status: string) {
   switch (status) {
@@ -86,13 +77,11 @@ function getStatusLabel(status: string) {
 export default function DocumentsPage() {
   /**
    * List of uploaded documents.
-   * 已上传文档列表。
    */
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
 
   /**
    * Currently selected document id.
-   * 当前选中的文档 ID。
    */
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(
     null,
@@ -100,62 +89,51 @@ export default function DocumentsPage() {
 
   /**
    * Detail of selected document.
-   * 当前选中文档的详情。
    *
    * This includes status and chunk_count.
-   * 包括 status 和 chunk_count。
    */
   const [selectedDocumentDetail, setSelectedDocumentDetail] =
     useState<DocumentDetail | null>(null);
 
   /**
    * Selected file from file input.
-   * 用户在 input 里选择的文件。
    */
   const [file, setFile] = useState<File | null>(null);
 
   /**
    * User question for selected document.
-   * 用户针对选中文档提出的问题。
    */
   const [question, setQuestion] = useState("");
 
   /**
    * AI answer returned by backend.
-   * 后端返回的 AI 答案。
    */
   const [answer, setAnswer] = useState("");
 
   /**
    * Source chunks returned by backend.
-   * 后端返回的 source chunks。
    *
    * These are used as citations.
-   * 这些用于 citation / 来源展示。
    */
   const [sources, setSources] = useState<AskResponse["sources"]>([]);
 
   /**
    * Upload loading state.
-   * 上传中的 loading 状态。
    */
   const [isUploading, setIsUploading] = useState(false);
 
   /**
    * Asking loading state.
-   * 提问中的 loading 状态。
    */
   const [isAsking, setIsAsking] = useState(false);
 
   /**
    * User-facing error message.
-   * 展示给用户看的错误信息。
    */
   const [error, setError] = useState("");
 
   /**
    * Load all uploaded documents.
-   * 加载所有已上传文档。
    *
    * Backend endpoint:
    * GET /documents
@@ -173,13 +151,11 @@ export default function DocumentsPage() {
 
   /**
    * Load detail for one document.
-   * 加载单个文档详情。
    *
    * Backend endpoint:
    * GET /documents/{document_id}
    *
    * This is used for:
-   * 用途：
    * - checking status
    * - showing chunk_count
    * - polling processing progress
@@ -200,16 +176,12 @@ export default function DocumentsPage() {
 
   /**
    * Upload selected PDF document.
-   * 上传用户选择的 PDF 文档。
    *
    * Important:
-   * 重要：
    *
    * Backend expects multipart/form-data, not JSON.
-   * 后端期待 multipart/form-data，不是 JSON。
    *
    * So we use FormData:
-   * 所以这里使用 FormData：
    *
    * formData.append("file", file)
    */
@@ -226,7 +198,6 @@ export default function DocumentsPage() {
 
       /**
        * The key must be "file" because backend endpoint is:
-       * key 必须是 "file"，因为后端接口是：
        *
        * file: UploadFile = File(...)
        */
@@ -242,8 +213,7 @@ export default function DocumentsPage() {
       }
 
       /**
-       * Day 7 backend returns immediately:
-       * Day 7 后端会立刻返回：
+       * Backend returns immediately:
        *
        * {
        *   id,
@@ -252,25 +222,21 @@ export default function DocumentsPage() {
        * }
        *
        * Actual extraction/chunking/embedding happens in background.
-       * 真正的解析、chunk、embedding 会在后台继续做。
        */
       const uploadedDocument: DocumentItem = await response.json();
 
       /**
        * Select uploaded document immediately.
-       * 上传后立刻选中这个文档。
        */
       setSelectedDocumentId(uploadedDocument.id);
 
       /**
        * Clear file input state.
-       * 清空当前 file state。
        */
       setFile(null);
 
       /**
        * Refresh document list and detail.
-       * 刷新文档列表和文档详情。
        */
       await loadDocuments();
       await loadDocumentDetail(uploadedDocument.id);
@@ -284,7 +250,6 @@ export default function DocumentsPage() {
 
   /**
    * Ask a question about selected document.
-   * 针对选中文档提问。
    *
    * Backend endpoint:
    * POST /documents/{document_id}/ask
@@ -295,9 +260,6 @@ export default function DocumentsPage() {
     /**
      * Guard:
      * Only allow asking when document is ready.
-     *
-     * 保护逻辑：
-     * 只有文档 ready 以后才能提问。
      */
     if (selectedDocumentDetail?.status !== "ready") {
       setError("Document is not ready yet.");
@@ -342,7 +304,6 @@ export default function DocumentsPage() {
 
   /**
    * Select document from sidebar.
-   * 从左侧文档列表选中文档。
    */
   async function selectDocument(documentId: string) {
     setError("");
@@ -362,7 +323,6 @@ export default function DocumentsPage() {
 
   /**
    * Load document list on first page load.
-   * 页面首次加载时，加载文档列表。
    */
   useEffect(() => {
     loadDocuments().catch((err) => {
@@ -373,25 +333,17 @@ export default function DocumentsPage() {
 
   /**
    * Poll selected document status.
-   * 轮询当前选中文档的处理状态。
    *
    * Why polling?
-   * 为什么要 polling？
    *
-   * Day 7 backend uses FastAPI BackgroundTasks.
+   * Backend uses FastAPI BackgroundTasks.
    * The upload request returns immediately,
    * while ingestion continues in the background.
    *
-   * Day 7 后端使用 FastAPI BackgroundTasks。
-   * 上传请求会立即返回，但 ingestion 在后台继续执行。
-   *
    * Therefore the frontend periodically checks:
-   * 所以前端需要定期检查：
-   *
    * GET /documents/{document_id}
    *
    * until status becomes:
-   * 直到状态变成：
    *
    * ready or failed
    */
@@ -405,7 +357,6 @@ export default function DocumentsPage() {
 
         /**
          * Stop polling once processing finishes.
-         * 当处理完成后停止 polling。
          */
         if (detail.status === "ready" || detail.status === "failed") {
           window.clearInterval(interval);
@@ -418,9 +369,6 @@ export default function DocumentsPage() {
     /**
      * Cleanup interval when selectedDocumentId changes
      * or when component unmounts.
-     *
-     * 当 selectedDocumentId 改变或者组件卸载时，
-     * 清理 interval。
      */
     return () => window.clearInterval(interval);
   }, [selectedDocumentId]);
@@ -428,9 +376,6 @@ export default function DocumentsPage() {
   /**
    * Derived state:
    * Whether user can ask the selected document.
-   *
-   * 派生状态：
-   * 当前是否允许对文档提问。
    */
   const canAsk =
     Boolean(selectedDocumentId) &&
@@ -443,7 +388,6 @@ export default function DocumentsPage() {
       <AppNav />
 
       <div className="mx-auto max-w-6xl px-6 pb-8">
-        {/* Page header / 页面头部 */}
         <header className="mb-8 border-b border-zinc-800 pb-4">
           <h1 className="text-2xl font-semibold">
             Enterprise Document Assistant
@@ -455,14 +399,14 @@ export default function DocumentsPage() {
           </p>
         </header>
 
-        {/* Error banner / 错误提示 */}
+        {/* Error banner */}
         {error && (
           <div className="mb-4 rounded-xl border border-red-800 bg-red-950/50 px-4 py-3 text-sm text-red-300">
             {error}
           </div>
         )}
 
-        {/* Upload section / 上传区域 */}
+        {/* Upload section */}
         <section className="mb-8 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
           <h2 className="mb-3 text-lg font-semibold">Upload PDF</h2>
 
@@ -492,9 +436,9 @@ export default function DocumentsPage() {
           </div>
         </section>
 
-        {/* Main content grid / 主内容区域 */}
+        {/* Main content grid */}
         <section className="grid gap-6 md:grid-cols-[300px_1fr]">
-          {/* Document list / 文档列表 */}
+          {/* Document list */}
           <aside className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
             <h2 className="mb-3 text-lg font-semibold">Documents</h2>
 
@@ -541,11 +485,11 @@ export default function DocumentsPage() {
             )}
           </aside>
 
-          {/* Ask document panel / 文档问答区域 */}
+          {/* Ask document panel */}
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
             <h2 className="mb-3 text-lg font-semibold">Ask Document</h2>
 
-            {/* Selected document detail / 当前文档详情 */}
+            {/* Selected document detail */}
             {selectedDocumentDetail ? (
               <div className="mb-4 rounded-xl border border-zinc-800 bg-zinc-950 p-3 text-sm text-zinc-400">
                 <div className="mb-1">
@@ -568,7 +512,7 @@ export default function DocumentsPage() {
                   {formatDate(selectedDocumentDetail.updated_at)}
                 </div>
 
-                {/* Processing hint / 处理中提示 */}
+                {/* Processing hint */}
                 {(selectedDocumentDetail.status === "uploaded" ||
                   selectedDocumentDetail.status === "processing") && (
                   <div className="mt-3 rounded-lg border border-yellow-900 bg-yellow-950/40 px-3 py-2 text-yellow-300">
@@ -577,7 +521,7 @@ export default function DocumentsPage() {
                   </div>
                 )}
 
-                {/* Failed status / 失败状态 */}
+                {/* Failed status */}
                 {selectedDocumentDetail.status === "failed" && (
                   <div className="mt-3 rounded-lg border border-red-900 bg-red-950/40 px-3 py-2 text-red-300">
                     <div className="font-semibold">Processing failed</div>
@@ -595,7 +539,7 @@ export default function DocumentsPage() {
               </div>
             )}
 
-            {/* Question input / 问题输入 */}
+            {/* Question input */}
             <textarea
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
@@ -611,7 +555,7 @@ export default function DocumentsPage() {
               {isAsking ? "Thinking..." : "Ask"}
             </button>
 
-            {/* Why disabled / 禁用原因提示 */}
+            {/* Why disabled */}
             {selectedDocumentDetail &&
               selectedDocumentDetail.status !== "ready" && (
                 <p className="mt-2 text-xs text-zinc-500">
@@ -619,7 +563,7 @@ export default function DocumentsPage() {
                 </p>
               )}
 
-            {/* Answer / 答案 */}
+            {/* Answer */}
             {answer && (
               <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-950 p-4">
                 <h3 className="mb-2 font-semibold">Answer</h3>
@@ -630,7 +574,7 @@ export default function DocumentsPage() {
               </div>
             )}
 
-            {/* Sources / 来源引用 */}
+            {/* Sources */}
             {sources.length > 0 && (
               <div className="mt-6">
                 <h3 className="mb-3 font-semibold">Sources</h3>

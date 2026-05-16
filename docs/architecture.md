@@ -255,3 +255,24 @@ Future improvements:
 - Store secrets in AWS Secrets Manager or SSM
 - Add Terraform infrastructure as code
 - Add RAG with S3, pgvector, and async ingestion pipeline
+
+## Reliability and Observability Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Backend as FastAPI Backend
+    participant Logs as stdout / CloudWatch
+    participant DB as PostgreSQL
+    participant OpenAI
+
+    Client->>Backend: HTTP request
+    Backend->>Backend: Generate request_id
+    Backend->>Logs: request_start
+    Backend->>Backend: Rate limit check
+    Backend->>DB: Query or persist data
+    Backend->>OpenAI: Call AI API with timeout
+    OpenAI-->>Backend: Response
+    Backend->>Logs: request_complete with latency
+    Backend-->>Client: Response with X-Request-ID
+```

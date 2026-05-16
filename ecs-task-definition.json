@@ -1,0 +1,49 @@
+{
+  "family": "ai-workspace-backend-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::232428703153:role/ai-workspace-ecs-task-execution-role",
+  "containerDefinitions": [
+    {
+      "name": "ai-workspace-backend",
+      "image": "232428703153.dkr.ecr.us-west-2.amazonaws.com/ai-workspace-backend:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "OPENAI_MODEL",
+          "value": "gpt-4.1-mini"
+        },
+        {
+          "name": "DATABASE_URL",
+          "value": "postgresql://postgres:JHsd9008!!@ai-workspace-postgres.cdioq664sosu.us-west-2.rds.amazonaws.com:5432/ai_workspace"
+        },
+        {
+          "name": "FRONTEND_URL",
+          "value": "http://localhost:3000"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "OPENAI_API_KEY",
+          "valueFrom": "/ai-workspace/OPENAI_API_KEY"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/ai-workspace-backend",
+          "awslogs-region": "us-west-2",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}

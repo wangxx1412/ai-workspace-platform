@@ -7,6 +7,8 @@ RAG utilities
 4. Prompt building
 """
 
+import time
+
 import fitz
 from openai import OpenAI
 
@@ -66,25 +68,38 @@ def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 150) -> list[st
     return chunks
 
 
-def create_embedding(client: OpenAI, text: str) -> list[float]:
-    """
-    Create embedding for one text chunk.
-    """
+def create_embedding(    client: OpenAI,
+    text: str,
+    max_retries: int = 3,
+    retry_delay_seconds: float = 1.0,
+    ) -> list[float]:
+    last_error: Exception | None = None
 
-    response = client.embeddings.create(
-        model=EMBEDDING_MODEL,
-        input=text,
-    )
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = client.embeddings.create(
+                model=EMBEDDING_MODEL,
+                input=text,
+            )
 
-    return response.data[0].embedding
+            return response.data[0].embedding
+
+        except Exception as error:
+            last_error = error
+
+            if attempt == max_retries:
+                break
+
+            time.sleep(retry_delay_seconds * attempt)
+
+    raise RuntimeError(f"Failed to create embedding after retries: {last_error}")
 
 
 def build_rag_prompt(question: str, chunks: list[str]) -> str:
     """
     Build prompt using retrieved context.
     """
-
-
+    
     context_blocks = []
 
     for chunk in chunks:

@@ -1,13 +1,17 @@
 import os
 from datetime import datetime
+import time
+import uuid
+from logging_config import setup_logging, logger
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException,File, UploadFile, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from sqlalchemy import text
+from fastapi.responses import StreamingResponse, JSONResponse
 from pgvector.sqlalchemy import Vector
+from collections import defaultdict, deque
 from openai import OpenAI
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
@@ -29,20 +33,20 @@ from rag import extract_pdf_pages, chunk_text, create_embedding, build_rag_promp
 
 load_dotenv()
 
+setup_logging()
+
 app = FastAPI(title="AI Workspace API")
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    timeout=30.0,
+)
 
 DEMO_USER_ID = "local-dev-user"
+RATE_LIMIT_WINDOW_SECONDS = 60
+RATE_LIMIT_MAX_REQUESTS = 30
 
-
-# Create tables automatically
-# Production note:
-# In production, use Alembic migrations instead.
-
-# Enable vector extension for pgvector support. 
-# In production,should set up the extension manually.
-from sqlalchemy import text
+request_timestamps: dict[str, deque] = defaultdict(deque)
 
 with engine.connect() as connection:
     connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
@@ -52,6 +56,29 @@ Base.metadata.create_all(bind=engine)
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
+def check_rate_limit(client_id: str) -> bool:
+    """
+    Simple in-memory sliding window rate limiter.
+
+    Returns True if allowed.
+
+    MVP tradeoff:
+    This works for a single backend instance.
+    In production with multiple containers, use Redis.
+    """
+
+    now = time.time()
+    timestamps = request_timestamps[client_id]
+
+    while timestamps and now - timestamps[0] > RATE_LIMIT_WINDOW_SECONDS:
+        timestamps.popleft()
+
+    if len(timestamps) >= RATE_LIMIT_MAX_REQUESTS:
+        return False
+
+    timestamps.append(now)
+    return True
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[FRONTEND_URL],
@@ -60,9 +87,93 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def request_context_middleware(request, call_next):
+    """
+    Add request_id and latency logging for every HTTP request.
+
+    In production, one user action may trigger many logs.
+    A request_id lets us connect all logs from the same request.
+    """
+
+    request_id = str(uuid.uuid4())
+    start_time = time.time()
+
+    request.state.request_id = request_id
+
+    logger.info(
+        f"request_start request_id={request_id} "
+        f"method={request.method} path={request.url.path}"
+    )
+
+    client_host = request.client.host if request.client else "unknown"
+
+    if not check_rate_limit(client_host):
+        logger.warning(
+            f"rate_limit_exceeded request_id={request_id} client={client_host}"
+        )
+
+        return JSONResponse(
+            status_code=429,
+            content={
+                "detail": "Rate limit exceeded. Please try again later.",
+                "request_id": request_id,
+            },
+        )
+    try:
+        response = await call_next(request)
+
+        latency_ms = round((time.time() - start_time) * 1000, 2)
+
+        logger.info(
+            f"request_complete request_id={request_id} "
+            f"method={request.method} path={request.url.path} "
+            f"status_code={response.status_code} latency_ms={latency_ms}"
+        )
+
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+    except Exception as error:
+        latency_ms = round((time.time() - start_time) * 1000, 2)
+
+        logger.exception(
+            f"request_failed request_id={request_id} "
+            f"method={request.method} path={request.url.path} "
+            f"latency_ms={latency_ms} error={str(error)}"
+        )
+
+        raise
+
 @app.get("/health")
-def health():
-    return {"status": "ok"}
+def health(db: Session = Depends(get_db)):
+    """
+    Health check endpoint.
+
+    Checks:
+    - API server is running
+    - Database connection works
+    """
+
+    try:
+        db.execute(text("SELECT 1"))
+
+        return {
+            "status": "ok",
+            "database": "ok",
+            "service": "ai-workspace-api",
+        }
+
+    except Exception as error:
+        logger.exception(f"health_check_failed error={str(error)}")
+
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "error",
+                "database": "unavailable",
+            },
+        )
 
 
 @app.post("/conversations", response_model=ConversationCreateResponse)
@@ -241,7 +352,7 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
                     stream_db.close()
 
         except Exception as error:
-            print(f"OpenAI streaming error: {error}", flush=True)
+            logger.exception(f"openai_streaming_failed error={str(error)}")
             yield "\n\n[Error] The AI service failed while generating a response."
 
     return StreamingResponse(
@@ -261,6 +372,7 @@ def process_document_in_background(
     """
     Process uploaded PDF in the background.
     """
+    logger.info(f"document_ingestion_start document_id={document_id}")
 
     from database import SessionLocal
 
@@ -307,10 +419,13 @@ def process_document_in_background(
 
         document.status = "ready"
         document.updated_at = datetime.utcnow()
+        logger.info(
+            f"document_ingestion_complete document_id={document_id} chunks={chunk_index}"
+        )
         background_db.commit()
 
     except Exception as error:
-        print(f"Background document ingestion failed: {error}", flush=True)
+        logger.exception(f"document_ingestion_failed document_id={document_id} error={str(error)}")
 
         document = (
             background_db.query(Document)
