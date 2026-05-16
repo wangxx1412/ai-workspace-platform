@@ -1,34 +1,48 @@
 # AI Workspace Platform
 
-A production-style AI chat workspace built with Next.js, FastAPI, PostgreSQL, Docker, and OpenAI.
+A production-style AI workspace built with **Next.js, FastAPI, PostgreSQL, Docker, OpenAI, pgvector, and AWS**.
 
-This project demonstrates how to build a persistent AI chat system with streaming LLM responses, multi-turn conversation context, markdown rendering, retry/abort handling, Dockerized local setup, and PostgreSQL-backed conversation history.
-
----
-
-## Screenshots
-
-### Streaming Chat & Conversation History
-
-![Streaming Chat](docs/screenshots/streaming-chat.png)
+The platform supports streaming LLM chat, persistent conversation history, document-based RAG Q&A, async PDF ingestion, citation-aware answers, and cloud deployment on AWS ECS Fargate.
 
 ---
 
 ## Features
 
-- Streaming AI responses
+### AI Chat Workspace
+
+- Streaming LLM responses
 - Multi-turn conversation context
 - Markdown, table, and code block rendering
-- Stop generation with AbortController
-- Retry last user message
-- Conversation sidebar
-- Create and load previous conversations
-- PostgreSQL-backed conversation and message persistence
-- FastAPI backend orchestration
-- OpenAI Responses API integration
-- Docker Compose local production setup
-- Environment-based configuration
-- Basic error handling
+- Retry last response
+- Stop generation with `AbortController`
+- Persistent conversations with PostgreSQL
+- Conversation sidebar with create/load history
+
+### RAG Document Assistant
+
+- PDF upload
+- Text extraction with PyMuPDF
+- Chunking with overlap
+- OpenAI embeddings
+- PostgreSQL + pgvector semantic search
+- Document Q&A
+- Citation-aware answers with filename, page number, and chunk index
+- Async ingestion with document status:
+  - `uploaded`
+  - `processing`
+  - `ready`
+  - `failed`
+
+### Reliability / Observability
+
+- Request ID middleware
+- Structured-style backend logs
+- Request latency logging
+- Health check with database connectivity
+- OpenAI timeout handling
+- Embedding retry logic
+- Basic in-memory rate limiting
+- CloudWatch-ready stdout logs
 
 ---
 
@@ -40,8 +54,7 @@ This project demonstrates how to build a persistent AI chat system with streamin
 - TypeScript
 - Tailwind CSS
 - React Markdown
-- remark-gfm
-- rehype-highlight
+- Vercel
 
 ### Backend
 
@@ -49,29 +62,21 @@ This project demonstrates how to build a persistent AI chat system with streamin
 - Python
 - SQLAlchemy
 - PostgreSQL
+- pgvector
+- PyMuPDF
 - OpenAI SDK
 
 ### Infrastructure
 
 - Docker
 - Docker Compose
-- PostgreSQL container
-
-### AI
-
-- OpenAI Responses API
-- Streaming text generation
-- Multi-turn message context
-
-### Planned Cloud Stack
-
 - AWS ECS Fargate
-- Amazon ECR
-- Amazon RDS PostgreSQL
-- Amazon S3
+- AWS ECR
+- AWS RDS PostgreSQL
+- AWS ALB
 - AWS CloudWatch
-- AWS Secrets Manager or SSM Parameter Store
-- Terraform
+- AWS SSM Parameter Store
+- Vercel Rewrite Proxy
 
 ---
 
@@ -80,265 +85,165 @@ This project demonstrates how to build a persistent AI chat system with streamin
 ```text
 User
  ↓
-Next.js Chat UI
+Vercel Frontend
  ↓
-FastAPI Backend
+Vercel Rewrite Proxy
  ↓
-OpenAI Responses API
+AWS Application Load Balancer
  ↓
-StreamingResponse
+ECS Fargate FastAPI Backend
  ↓
-ReadableStream
+RDS PostgreSQL + pgvector
  ↓
-Incremental UI Rendering
+OpenAI API
 
-PostgreSQL
- ← conversations
- ← messages
-```
-
-See detailed architecture diagrams in:
-
-```text
-docs/architecture.md
+CloudWatch collects backend logs.
+SSM Parameter Store injects secrets.
 ```
 
 ---
 
-## Persistence Flow
+## AI Chat Flow
 
 ```text
-User sends a message
+User sends message
  ↓
-Frontend checks activeConversationId
+Frontend sends conversation_id + messages
  ↓
-If no conversation exists, frontend creates one
- ↓
-Frontend sends conversation_id + messages to backend
- ↓
-Backend saves latest user message to PostgreSQL
+Backend saves user message
  ↓
 Backend calls OpenAI with streaming enabled
  ↓
-Backend streams text deltas back to frontend
+Backend streams text chunks to frontend
  ↓
-Frontend incrementally renders assistant response
+Frontend incrementally renders response
  ↓
-Backend stores complete assistant message after streaming finishes
- ↓
-Frontend refreshes conversation sidebar
+Backend saves final assistant message
 ```
 
 ---
 
-## Database Schema
+## RAG Flow
+
+```text
+PDF Upload
+ ↓
+Create document row: uploaded
+ ↓
+Background ingestion task
+ ↓
+Extract text
+ ↓
+Chunk text
+ ↓
+Create embeddings
+ ↓
+Store vectors in pgvector
+ ↓
+User asks question
+ ↓
+Retrieve top-k chunks
+ ↓
+Generate grounded answer with citations
+```
+
+---
+
+## Database Models
 
 ### conversations
 
-| Column     | Description                                 |
-| ---------- | ------------------------------------------- |
-| id         | Unique conversation ID                      |
-| user_id    | User identifier; currently a mock demo user |
-| title      | Conversation title                          |
-| created_at | Creation timestamp                          |
-| updated_at | Last updated timestamp                      |
+Stores AI chat sessions.
+
+```text
+id
+user_id
+title
+created_at
+updated_at
+```
 
 ### messages
 
-| Column          | Description            |
-| --------------- | ---------------------- |
-| id              | Unique message ID      |
-| conversation_id | Parent conversation ID |
-| role            | `user` or `assistant`  |
-| content         | Message content        |
-| created_at      | Creation timestamp     |
+Stores user and assistant messages.
+
+```text
+id
+conversation_id
+role
+content
+created_at
+```
+
+### documents
+
+Stores uploaded document metadata and ingestion status.
+
+```text
+id
+user_id
+filename
+status
+error_message
+created_at
+updated_at
+```
+
+### document_chunks
+
+Stores document chunks and embeddings.
+
+```text
+id
+document_id
+content
+embedding
+chunk_index
+page_number
+created_at
+```
 
 ---
 
 ## API Endpoints
 
-### Health Check
-
-```http
-GET /health
-```
-
-Returns backend status.
-
----
-
-### Create Conversation
-
-```http
-POST /conversations
-```
-
-Creates a new conversation for the demo user.
-
----
-
-### List Conversations
-
-```http
-GET /conversations
-```
-
-Returns all conversations for the demo user.
-
----
-
-### Get Conversation Detail
-
-```http
-GET /conversations/{conversation_id}
-```
-
-Returns one conversation and its messages.
-
----
-
 ### Chat
 
 ```http
 POST /chat
+GET /conversations
+POST /conversations
+GET /conversations/{conversation_id}
 ```
 
-Streams an AI response and persists both user and assistant messages.
+### Documents / RAG
 
-Example request:
+```http
+GET /documents
+GET /documents/{document_id}
+POST /documents/upload
+POST /documents/{document_id}/ask
+```
 
-```json
-{
-  "conversation_id": "conversation-id",
-  "messages": [
-    {
-      "role": "user",
-      "content": "Explain RAG in simple terms"
-    }
-  ]
-}
+### Health
+
+```http
+GET /health
 ```
 
 ---
 
 ## Local Development
 
-### Backend
+### 1. Clone and configure
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-```
-
----
-
-### Backend Environment Variables
-
-Create `backend/.env`:
-
-```env
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_MODEL=gpt-4.1-mini
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ai_workspace
-```
-
----
-
-### PostgreSQL with Docker
-
-```bash
-docker run --name ai-workspace-postgres \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=ai_workspace \
-  -p 5432:5432 \
-  -d postgres:16
-```
-
----
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
----
-
-### Frontend Environment Variables
-
-Create `frontend/.env.local`:
-
-```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-```
-
----
-
-## Docker Setup
-
-This project can also be started with Docker Compose.
-
-Copy `.env.example` to `.env`:
-
-```bash
+git clone <repo-url>
+cd ai-workspace-platform
 cp .env.example .env
 ```
 
-Update:
-
-```env
-OPENAI_API_KEY=your_openai_api_key_here
-```
-
-Start all services:
-
-```bash
-docker compose up --build
-```
-
-This starts:
-
-- Frontend: http://localhost:3000
-- Backend: http://localhost:8000
-- PostgreSQL: localhost:5432
-
-Stop services:
-
-```bash
-docker compose down
-```
-
-Stop services and remove database volume:
-
-```bash
-docker compose down -v
-```
-
-View logs:
-
-```bash
-docker compose logs -f backend
-docker compose logs -f frontend
-docker compose logs -f postgres
-```
-
-Connect to PostgreSQL:
-
-```bash
-docker compose exec postgres psql -U postgres -d ai_workspace
-```
-
----
-
-## Environment Variables
-
-Example root `.env` for Docker Compose:
+Update `.env`:
 
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
@@ -356,64 +261,119 @@ FRONTEND_PORT=3000
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
-Important:
+### 2. Run with Docker Compose
 
-When running backend locally outside Docker:
-
-```env
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ai_workspace
+```bash
+docker compose up --build
 ```
 
-When running backend inside Docker Compose:
-
-```env
-DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ai_workspace
-```
-
----
-
-## MVP Tradeoff
-
-For the current MVP, this project uses a fixed demo user ID:
+Services:
 
 ```text
-local-dev-user
+Frontend: http://localhost:3000
+Backend:  http://localhost:8000
+Postgres: localhost:5432
 ```
 
-This allows the project to focus on the core AI workflow, streaming architecture, and persistence model first.
+### 3. Useful commands
 
-In a production version, this would be replaced with a real authenticated user ID from JWT, session-based auth, or an identity provider.
+```bash
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose logs -f postgres
+docker compose down
+docker compose down -v
+```
 
 ---
 
 ## Cloud Deployment
 
-The backend is deployed as a containerized FastAPI service on AWS ECS Fargate, with the Docker image hosted in Amazon ECR. PostgreSQL persistence is provided by Amazon RDS, backend logs are collected through CloudWatch, and sensitive configuration such as the OpenAI API key is injected through AWS SSM Parameter Store.
+The app is deployed with:
 
-The frontend is deployed on Vercel and uses a rewrite proxy to securely route browser requests to the AWS backend.
+```text
+Frontend: Vercel
+Backend: AWS ECS Fargate
+Image Registry: AWS ECR
+Database: AWS RDS PostgreSQL
+Load Balancer: AWS ALB
+Logs: AWS CloudWatch
+Secrets: AWS SSM Parameter Store
+```
 
-## Current Status
+The Vercel frontend uses a rewrite proxy:
 
-### Completed
+```text
+/browser request: /backend/*
+ ↓
+Vercel rewrite
+ ↓
+AWS ALB backend
+```
 
-- Streaming AI chat
-- Multi-turn conversation context
-- Markdown/table/code rendering
-- Stop generation
-- Retry last message
-- PostgreSQL persistence
-- Conversation sidebar
-- Create/load previous conversations
-- Docker Compose setup
+This avoids browser mixed-content issues when the frontend runs on HTTPS and the ALB backend is HTTP.
 
 ---
 
-## Next Steps
+## Environment Variables
 
-- Add real authentication with JWT or Auth.js
-- Add request-level logging and rate limiting
-- Add AWS ECS/Fargate deployment
-- Add Terraform infrastructure as code
-- Add RAG document assistant with pgvector
-- Add S3 document storage
-- Add observability with CloudWatch/OpenTelemetry
+### Frontend local
+
+```env
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+```
+
+### Frontend on Vercel
+
+```env
+NEXT_PUBLIC_API_BASE_URL=/backend
+BACKEND_API_URL=http://your-alb-dns-name
+```
+
+### Backend
+
+```env
+OPENAI_API_KEY=stored in AWS SSM Parameter Store
+OPENAI_MODEL=gpt-4.1-mini
+DATABASE_URL=RDS PostgreSQL connection string
+FRONTEND_URL=https://your-vercel-domain.vercel.app
+```
+
+---
+
+## MVP Tradeoffs
+
+This project intentionally uses a few MVP-friendly decisions:
+
+- Mock user ID instead of full authentication
+- FastAPI BackgroundTasks instead of Celery/SQS
+- In-memory rate limiting instead of Redis
+- SQLAlchemy `create_all` instead of Alembic migrations
+- Vercel rewrite proxy instead of full HTTPS custom domain on ALB
+
+Production improvements would include JWT/Auth.js, Redis rate limiting, SQS-based ingestion, Alembic migrations, HTTPS ALB with ACM, Terraform IaC, and CI/CD.
+
+---
+
+## Current Status
+
+Completed:
+
+- Streaming AI chat
+- PostgreSQL conversation persistence
+- Docker Compose local setup
+- RAG document Q&A with pgvector
+- Async PDF ingestion
+- Citation-aware answers
+- Request logging and health checks
+- AWS ECS/RDS/ALB/CloudWatch/SSM deployment
+- Vercel frontend deployment with rewrite proxy
+
+Next:
+
+- Terraform / IaC skeleton
+- Authentication
+- S3 document storage
+- Redis rate limiting
+- CI/CD pipeline
+- OpenTelemetry tracing
