@@ -2,22 +2,30 @@ import os
 from datetime import datetime
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException,File, UploadFile, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from sqlalchemy import text
+from pgvector.sqlalchemy import Vector
 from openai import OpenAI
 from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
-from models import Conversation, Message
+from models import Conversation, Message, Document, DocumentChunk
 from schemas import (
     ChatRequest,
     ConversationCreateResponse,
     ConversationDetailResponse,
     ConversationListItem,
+    DocumentDetailResponse,
     MessageResponse,
+    DocumentListItem,
+    DocumentUploadResponse,
+    DocumentAskRequest,
+    DocumentAskResponse,
+    SourceChunk,
 )
-
+from rag import extract_pdf_pages, chunk_text, create_embedding, build_rag_prompt
 
 load_dotenv()
 
@@ -244,4 +252,241 @@ def chat(req: ChatRequest, db: Session = Depends(get_db)):
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
+    )
+
+def process_document_in_background(
+    document_id: str,
+    file_bytes: bytes,
+):
+    """
+    Process uploaded PDF in the background.
+    """
+
+    from database import SessionLocal
+
+    background_db = SessionLocal()
+
+    try:
+        document = (
+            background_db.query(Document)
+            .filter(Document.id == document_id)
+            .first()
+        )
+
+        if not document:
+            return
+
+        document.status = "processing"
+        document.error_message = None
+        document.updated_at = datetime.utcnow()
+        background_db.commit()
+
+        pages = extract_pdf_pages(file_bytes)
+
+        chunk_index = 0
+
+        for page in pages:
+            page_number = page["page_number"]
+            page_text = page["text"]
+
+            chunks = chunk_text(page_text)
+
+            for chunk in chunks:
+                embedding = create_embedding(client, chunk)
+
+                document_chunk = DocumentChunk(
+                    document_id=document.id,
+                    content=chunk,
+                    chunk_index=chunk_index,
+                    page_number=page_number,
+                    embedding=embedding,
+                )
+
+                background_db.add(document_chunk)
+                chunk_index += 1
+
+        document.status = "ready"
+        document.updated_at = datetime.utcnow()
+        background_db.commit()
+
+    except Exception as error:
+        print(f"Background document ingestion failed: {error}", flush=True)
+
+        document = (
+            background_db.query(Document)
+            .filter(Document.id == document_id)
+            .first()
+        )
+
+        if document:
+            document.status = "failed"
+            document.error_message = str(error)[:1000]
+            document.updated_at = datetime.utcnow()
+            background_db.commit()
+
+    finally:
+        background_db.close()
+
+@app.get("/documents", response_model=list[DocumentListItem])
+def list_documents(db: Session = Depends(get_db)):
+    """
+    List uploaded documents.
+    """
+
+    documents = (
+        db.query(Document)
+        .filter(Document.user_id == DEMO_USER_ID)
+        .order_by(Document.created_at.desc())
+        .all()
+    )
+
+    return documents
+
+@app.post("/documents/upload", response_model=DocumentUploadResponse)
+async def upload_document(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload PDF, extract text, chunk it, create embeddings, and store chunks.
+    """
+
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+
+    file_bytes = await file.read()
+
+    document = Document(
+        user_id=DEMO_USER_ID,
+        filename=file.filename,
+        status="uploaded",
+    )
+
+    db.add(document)
+    db.commit()
+    db.refresh(document)
+
+    background_tasks.add_task(
+        process_document_in_background,
+        document.id,
+        file_bytes,
+    )
+
+    return DocumentUploadResponse(
+        id=document.id,
+        filename=document.filename,
+        status=document.status,
+    )
+
+@app.post("/documents/{document_id}/ask", response_model=DocumentAskResponse)
+def ask_document(
+    document_id: str,
+    req: DocumentAskRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Ask a question about one document using RAG.
+    """
+
+    document = (
+        db.query(Document)
+        .filter(
+            Document.id == document_id,
+            Document.user_id == DEMO_USER_ID,
+        )
+        .first()
+    )
+
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if document.status != "ready":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Document is not ready. Current status: {document.status}",
+        )
+
+    question_embedding = create_embedding(client, req.question)
+
+    # pgvector cosine distance query.
+    chunks = (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == document_id)
+        .order_by(DocumentChunk.embedding.cosine_distance(question_embedding))
+        .limit(req.top_k)
+        .all()
+    )
+
+    if not chunks:
+        raise HTTPException(status_code=404, detail="No chunks found for document")
+
+    context_chunks = [
+        {
+            "source_id": index + 1,
+            "filename": document.filename,
+            "page_number": chunk.page_number,
+            "content": chunk.content,
+        }
+        for index, chunk in enumerate(chunks)
+    ]
+
+    prompt = build_rag_prompt(req.question, context_chunks)
+
+    response = client.responses.create(
+        model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+        input=prompt,
+    )
+
+    answer = response.output_text
+
+    return DocumentAskResponse(
+        answer=answer,
+        sources=[
+            SourceChunk(
+                chunk_id=chunk.id,
+                filename=document.filename,
+                content=chunk.content[:500],
+                page_number=chunk.page_number,
+                chunk_index=chunk.chunk_index,
+            )
+            for chunk in chunks
+        ],
+    )
+
+@app.get("/documents/{document_id}", response_model=DocumentDetailResponse)
+def get_document(
+    document_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Get document status and metadata.
+    """
+
+    document = (
+        db.query(Document)
+        .filter(
+            Document.id == document_id,
+            Document.user_id == DEMO_USER_ID,
+        )
+        .first()
+    )
+
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    chunk_count = (
+        db.query(DocumentChunk)
+        .filter(DocumentChunk.document_id == document.id)
+        .count()
+    )
+
+    return DocumentDetailResponse(
+        id=document.id,
+        filename=document.filename,
+        status=document.status,
+        error_message=document.error_message,
+        created_at=document.created_at,
+        updated_at=document.updated_at,
+        chunk_count=chunk_count,
     )

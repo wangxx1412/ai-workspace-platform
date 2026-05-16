@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import AppNav from "./components/AppNav";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -35,6 +36,16 @@ type ConversationDetailResponse = {
   }[];
 };
 
+type DocumentDetail = {
+  id: string;
+  filename: string;
+  status: string;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  chunk_count: number;
+};
+
 const INITIAL_MESSAGES: Message[] = [
   {
     id: "initial-assistant-message",
@@ -56,17 +67,14 @@ function createMessage(role: MessageRole, content: string): Message {
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [conversations, setConversations] = useState<Conversation[]>([]);
-
   const [activeConversationId, setActiveConversationId] = useState<
     string | null
   >(null);
-
   const [input, setInput] = useState("");
-
   const [isStreaming, setIsStreaming] = useState(false);
-
   const [error, setError] = useState("");
-
+  const [selectedDocumentDetail, setSelectedDocumentDetail] =
+    useState<DocumentDetail | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   async function loadConversations() {
@@ -294,6 +302,19 @@ export default function Home() {
     }
   }
 
+  async function loadDocumentDetail(documentId: string) {
+    const response = await fetch(`${API_BASE_URL}/documents/${documentId}`);
+
+    if (!response.ok) {
+      throw new Error("Failed to load document detail");
+    }
+
+    const data: DocumentDetail = await response.json();
+    setSelectedDocumentDetail(data);
+
+    return data;
+  }
+
   function stopGenerating() {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -345,11 +366,11 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="flex min-h-screen">
+      <AppNav />
+      <div className="mx-auto flex min-h-[calc(100vh-140px)] max-w-6xl overflow-hidden rounded-2xl border border-zinc-800">
         <aside className="flex w-72 flex-col border-r border-zinc-800 bg-zinc-950 p-4">
           <div className="mb-4">
             <h2 className="mb-3 text-lg font-semibold">AI Workspace</h2>
-
             <button
               onClick={createConversation}
               disabled={isStreaming}

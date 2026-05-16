@@ -46,3 +46,47 @@ class ConversationDetailResponse(BaseModel):
     id: str
     title: str
     messages: list[MessageResponse]
+
+class DocumentListItem(BaseModel):
+    id: str
+    filename: str
+    status: str
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class DocumentDetailResponse(BaseModel):
+    id: str
+    filename: str
+    status: str
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    chunk_count: int
+
+
+class DocumentUploadResponse(BaseModel):
+    id: str
+    filename: str
+    status: str
+
+
+class DocumentAskRequest(BaseModel):
+    question: str
+    top_k: int = 5
+
+
+class SourceChunk(BaseModel):
+    chunk_id: str
+    filename: str
+    content: str
+    page_number: int | None
+    chunk_index: int
+
+
+class DocumentAskResponse(BaseModel):
+    answer: str
+    sources: list[SourceChunk]
+
+    

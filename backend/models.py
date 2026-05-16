@@ -7,7 +7,7 @@ Database models
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import Column, DateTime, ForeignKey, String, Text, Integer
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 
@@ -15,23 +15,10 @@ from database import Base
 
 
 def generate_uuid():
-    """
-    Generate UUID string.
-    生成 UUID 字符串。
-    """
-
     return str(uuid.uuid4())
 
 
 class Conversation(Base):
-    """
-    Conversation table.
-    对话表。
-
-    One conversation contains many messages.
-    一个 conversation 包含多条 messages。
-    """
-
     __tablename__ = "conversations"
 
     id = Column(String, primary_key=True, default=generate_uuid)
@@ -54,14 +41,6 @@ class Conversation(Base):
 
 
 class Message(Base):
-    """
-    Message table.
-    消息表。
-
-    Each message belongs to one conversation.
-    每条 message 属于一个 conversation。
-    """
-
     __tablename__ = "messages"
 
     id = Column(String, primary_key=True, default=generate_uuid)
@@ -106,6 +85,8 @@ class Document(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
 
+    error_message = Column(Text, nullable=True)
+    
     chunks = relationship(
         "DocumentChunk",
         back_populates="document",
@@ -137,12 +118,11 @@ class DocumentChunk(Base):
 
     content = Column(Text, nullable=False)
 
-    chunk_index = Column(String, nullable=False)
+    chunk_index = Column(Integer, nullable=False)
 
-    page_number = Column(String, nullable=True)
+    page_number = Column(Integer, nullable=True)
 
     # text-embedding-3-small returns 1536 dimensions.
-    # text-embedding-3-small 返回 1536 维向量。
     embedding = Column(Vector(1536), nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)
