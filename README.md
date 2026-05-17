@@ -377,3 +377,11 @@ Next:
 - Redis rate limiting
 - CI/CD pipeline
 - OpenTelemetry tracing
+
+## Terraform / IaC
+
+The project includes an initial Terraform skeleton under:
+
+```text
+infra/terraform
+```
